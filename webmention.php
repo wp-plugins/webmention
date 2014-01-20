@@ -5,7 +5,7 @@
  Description: Webmention support for WordPress posts
  Author: pfefferle
  Author URI: http://notizblog.org/
- Version: 2.0.0
+ Version: 2.0.1
 */
 
 /**
@@ -145,7 +145,7 @@ class WebMentionPlugin {
     $comment_post_ID = (int) $post->ID;
     $comment_author = wp_slash($title);
     $comment_author_email = '';
-    $comment_author_url = wp_slash($source);
+    $comment_author_url = esc_url_raw($source);
     $comment_content = wp_slash($content);
     $comment_type = 'webmention';
     $comment_parent = null;
@@ -167,7 +167,8 @@ class WebMentionPlugin {
     if ($comment) {
       $commentdata['comment_ID'] = $comment->comment_ID;
       // save comment
-      $comment_ID = wp_update_comment($commentdata);
+      wp_update_comment($commentdata);
+      $comment_ID = $comment->comment_ID;
     } else {
       // save comment
       $comment_ID = wp_new_comment($commentdata);
@@ -185,22 +186,30 @@ class WebMentionPlugin {
    * @param string $target the target URL
    */
   public static function default_content_filter( $context, $contents, $target ) {
-    //Original source by driedfruit: https://github.com/driedfruit/php-pingback/
+    // remove html header
+    $contents = preg_replace("/<head>(.*?)<\/head>/is", " ", $contents);
+
+    // original source by driedfruit: https://github.com/driedfruit/php-pingback/
     $pos = strpos($contents, $target);
 
     $left = substr($contents, 0, $pos);
     $right = substr($contents, $pos + $target);
     $gl = strrpos($left, '>', -512) + 1;/* attempt to land */
-    $gr = strpos($right, '<', 512);  /* on tag boundaries */
+
+    // check length
+    $length = strlen($right);
+    $length = ($length - 1) > 512 ? 512 : ($length - 1);
+    $gr = strpos($right, '<', $length);  /* on tag boundaries */
+
     $nleft = substr($left, $gl);
     $nright = substr($right, 0, $gr);
 
-    /* Glue them and strip_tags (and remove excessive whitepsace) */
+    /* glue them and strip_tags (and remove excessive whitepsace) */
     $nstr = $nleft.$nright;
     $nstr = strip_tags($nstr);
     $nstr = str_replace(array("\n","\t")," ", $nstr);
 
-    /* Take 120 chars from the CENTER of our current string */
+    /* take 120 chars from the CENTER of our current string */
     $fat = strlen($nstr) - 120;
     if ($fat > 0) {
       $lfat = $fat / 2;
@@ -209,7 +218,7 @@ class WebMentionPlugin {
       $nstr = substr($nstr, 0, -$rfat);
     }
 
-    /* Trim a little more and add [...] on the sides */
+    /* trim a little more and add [...] on the sides */
     $nstr = trim($nstr);
     if ($nstr) $context = preg_replace('#^.+?(\s)|(\s)\S+?$#', '\\2[&#8230;]\\1', $nstr);
 
