@@ -5,7 +5,7 @@
  Description: Webmention support for WordPress posts
  Author: pfefferle
  Author URI: http://notizblog.org/
- Version: 2.1.2
+ Version: 2.1.4
 */
 
 // check if class already exists
@@ -36,8 +36,9 @@ class WebMentionPlugin {
    * Initialize the plugin, registering WordPress hooks.
    */
   public static function init() {
-    // a pseudo hook so you can run a do_action('send_webmention') instead of calling WebMentionPlugin::send_webmention
-    add_action('send_webmention', array('WebMentionPlugin', 'send_webmention'));
+    // a pseudo hook so you can run a do_action('send_webmention')
+    // instead of calling WebMentionPlugin::send_webmention
+    add_action('send_webmention', array('WebMentionPlugin', 'send_webmention'), 10, 2);
 
     add_filter('query_vars', array('WebMentionPlugin', 'query_var'));
     add_action('parse_query', array('WebMentionPlugin', 'parse_query'));
@@ -230,10 +231,10 @@ class WebMentionPlugin {
    * @return string the filtered title
    */
   public static function default_title_filter( $title, $contents, $target, $source ) {
-    $meta_tags = get_meta_tags($source);
+    $meta_tags = @get_meta_tags($source);
 
     // use meta-author
-    if (array_key_exists('author', $meta_tags)) {
+    if ($meta_tags && is_array($meta_tags) && array_key_exists('author', $meta_tags)) {
       $title = $meta_tags['author'];
     // use title
     } elseif (preg_match("/<title>(.+)<\/title>/i", $contents, $match)) {
