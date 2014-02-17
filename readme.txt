@@ -4,7 +4,7 @@ Donate link: http://14101978.de
 Tags: webmention, pingback, trackback, linkback
 Requires at least: 2.7
 Tested up to: 3.8
-Stable tag: 2.1.2
+Stable tag: 2.2.0
 
 WebMention for WordPress!
 
@@ -13,6 +13,12 @@ WebMention for WordPress!
 Enables [WebMention](http://webmention.org/) support for WordPress.
 
 WebMention is a simple and modern alternative to the Pingback/Trackback protocol.
+
+From the [spec](http://webmention.org/):
+
+> Webmention is a simple way to automatically notify any URL when you link to it on your site.
+> From the receivers perpective, it's a way to request notification when other sites link to it.
+> It’s a modern alternative to Pingback and other forms of Linkback.
 
 == Frequently Asked Questions ==
 
@@ -29,6 +35,20 @@ You can use the `send_webmention($source, $target)` function and pass a source a
 == Changelog ==
 
 Project maintined on github at [pfefferle/wordpress-webmention](https://github.com/pfefferle/wordpress-webmention).
+
+= 2.2.0 =
+
+* prevent selfpings
+* added support for https and http
+* optimized some methods
+
+= 2.1.4 =
+
+* fixed pseudo hook
+
+= 2.1.3 =
+
+* fixed some warnings
 
 = 2.1.2 =
 

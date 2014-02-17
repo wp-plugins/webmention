@@ -5,7 +5,7 @@
  Description: Webmention support for WordPress posts
  Author: pfefferle
  Author URI: http://notizblog.org/
- Version: 2.1.2
+ Version: 2.2.0
 */
 
 // check if class already exists
@@ -36,8 +36,9 @@ class WebMentionPlugin {
    * Initialize the plugin, registering WordPress hooks.
    */
   public static function init() {
-    // a pseudo hook so you can run a do_action('send_webmention') instead of calling WebMentionPlugin::send_webmention
-    add_action('send_webmention', array('WebMentionPlugin', 'send_webmention'));
+    // a pseudo hook so you can run a do_action('send_webmention')
+    // instead of calling WebMentionPlugin::send_webmention
+    add_action('send_webmention', array('WebMentionPlugin', 'send_webmention'), 10, 2);
 
     add_filter('query_vars', array('WebMentionPlugin', 'query_var'));
     add_action('parse_query', array('WebMentionPlugin', 'parse_query'));
@@ -78,6 +79,7 @@ class WebMentionPlugin {
     $content = file_get_contents('php://input');
     parse_str($content);
 
+    // plain text header
     header('Content-Type: text/plain; charset=' . get_option('blog_charset'));
 
     // check if source url is transmitted
@@ -94,7 +96,17 @@ class WebMentionPlugin {
       exit;
     }
 
-    $post_ID = url_to_postid($target);
+    // remove url-scheme
+    $schemeless_target = preg_replace("/^https?:\/\//i", "", $target);
+
+    // check post with http only
+    $post_ID = url_to_postid("http://".$schemeless_target);
+
+    // if there is no post
+    if ( !$post_ID ) {
+      // try https url
+      $post_ID = url_to_postid("https://".$schemeless_target);
+    }
 
     // check if post id exists
     if ( !$post_ID ) {
@@ -132,7 +144,7 @@ class WebMentionPlugin {
     $contents = wp_remote_retrieve_body( $response );
 
     // check if source really links to target
-    if (!strpos($contents, $target)) {
+    if (!strpos($contents, str_replace(array('http://www.','http://','https://www.','https://'), '', untrailingslashit($target)))) {
       status_header(400);
       echo "Can't find target link.";
       exit;
@@ -230,10 +242,10 @@ class WebMentionPlugin {
    * @return string the filtered title
    */
   public static function default_title_filter( $title, $contents, $target, $source ) {
-    $meta_tags = get_meta_tags($source);
+    $meta_tags = @get_meta_tags($source);
 
     // use meta-author
-    if (array_key_exists('author', $meta_tags)) {
+    if ($meta_tags && is_array($meta_tags) && array_key_exists('author', $meta_tags)) {
       $title = $meta_tags['author'];
     // use title
     } elseif (preg_match("/<title>(.+)<\/title>/i", $contents, $match)) {
@@ -257,6 +269,12 @@ class WebMentionPlugin {
    * @return array of results including HTTP headers
    */
   public static function send_webmention($source, $target) {
+    // stop selfpings
+    if ($source == $target) {
+      return false;
+    }
+
+    // discover the webmention endpoint
     $webmention_server_url = self::discover_endpoint( $target );
 
     $args = array(
@@ -353,11 +371,11 @@ class WebMentionPlugin {
       if ( is_array($links) ) {
         foreach ($links as $link) {
           if (preg_match("/<(https?:\/\/[^>]+)>;\s+rel\s?=\s?[\"\']?(http:\/\/)?webmention(.org)?\/?[\"\']?/i", $link, $result))
-            return $result[1];
+            return self::make_url_absolute($url, $result[1]);
         }
       } else {
         if (preg_match("/<(https?:\/\/[^>]+)>;\s+rel\s?=\s?[\"\']?(http:\/\/)?webmention(.org)?\/?[\"\']?/i", $links, $result))
-          return $result[1];
+          return self::make_url_absolute($url, $result[1]);
       }
     }
 
@@ -377,15 +395,49 @@ class WebMentionPlugin {
     $header = substr( $contents, 0, stripos( $contents, '</head>' ) );
 
     // check html meta-links
-    if (preg_match('/<link\s+rel=[\"\'](http:\/\/)?webmention(.org)?[\"\']\s+href=[\"\']([^\"\']+)[\"\']\s*\/?>/i', $header, $result)) {
-      return $result[3];
+    if (preg_match('/<link\s+rel\s?=\s?[\"\']?(http:\/\/)?webmention(.org)?\/?[^\"\']*[\"\']?\s+href=[\"\']([^\'\"]+)[\"\']\s*\/?>/i', $header, $result)) {
+      return self::make_url_absolute($url, $result[3]);
     }
 
-    if (preg_match('/<link\s+href=[\"\']([^"\']+)[\"\']\s+rel=[\"\'](http:\/\/)?webmention(.org)?[\"\']\s*\/?>/i', $header, $result)) {
-      return $result[1];
+    if (preg_match('/<link\s+href=[\"\']([^"\']+)[\"\']\s+rel=\s?=\s?[\"\']?(http:\/\/)?webmention(.org)?\/?[^\'\"]*[\"\']?\s*\/?>/i', $header, $result)) {
+      return self::make_url_absolute($url, $result[1]);
     }
 
     return false;
+  }
+
+  /**
+   * converts relative to absolute urls
+   *
+   * based on the code of 99webtools.com
+   * @link https://99webtools.com/relative-path-into-absolute-url.php
+   *
+   * @param string $base the base url
+   * @param string $rel the relative url
+   * @return string the absolute url
+   */
+  public static function make_url_absolute( $base, $rel ) {
+    if(strpos($rel,"//")===0) {
+      return parse_url($base, PHP_URL_SCHEME).":".$rel;
+    }
+    // return if already absolute URL
+    if  (parse_url($rel, PHP_URL_SCHEME) != '') return $rel;
+    // queries and  anchors
+    if ($rel[0]=='#'  || $rel[0]=='?') return $base.$rel;
+    // parse base URL and convert to local variables:
+    // $scheme, $host, $path
+    extract(parse_url($base));
+    // remove  non-directory element from path
+    $path = preg_replace('#/[^/]*$#',  '', $path);
+    // destroy path if relative url points to root
+    if ($rel[0] ==  '/') $path = '';
+    // dirty absolute  URL
+    $abs =  "$host$path/$rel";
+    // replace '//' or '/./' or '/foo/../' with '/'
+    $re =  array('#(/\.?/)#', '#/(?!\.\.)[^/]+/\.\./#');
+    for ($n=1; $n>0; $abs=preg_replace($re, '/', $abs, -1, $n)) {}
+    // absolute URL is ready!
+    return  $scheme.'://'.$abs;
   }
 }
 
