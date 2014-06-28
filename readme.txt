@@ -4,7 +4,7 @@ Donate link: http://14101978.de
 Tags: webmention, pingback, trackback, linkback
 Requires at least: 2.7
 Tested up to: 3.8
-Stable tag: 2.2.0
+Stable tag: 2.3.1
 
 WebMention for WordPress!
 
@@ -32,9 +32,46 @@ It’s a modern alternative to Pingback and other forms of Linkback.
 
 You can use the `send_webmention($source, $target)` function and pass a source and a target or you can fire an action like `do_action('send_webmention', $source, $target)`.
 
+= How can I handle Homepage-WebMentions =
+
+WebMentions should be allowed on all URLs of a blog. The plugin currently supports only WebMentions on
+posts or pages, but it is very simple to add support for other types like homepages or archive pages.
+The easiest way is to provide some kind of a default post/page to show collect all mentions that are no
+comments on a post or a page. The plugin provides a simple filter for that:
+
+    function handle_exotic_webmentions($id, $target) {
+      // do nothing if id is set
+      if ($id) {
+        return $id;
+      }
+
+      // return "default" id if plugin can't find a post/page
+      return 9247;
+    }
+    add_filter("webmention_post_id", "handle_exotic_webmentions", 10, 2);
+
+If you want to add a more complex request handler, you should take a look at the
+`webmention_request` action and the `default_request_handler`.
+
 == Changelog ==
 
 Project maintined on github at [pfefferle/wordpress-webmention](https://github.com/pfefferle/wordpress-webmention).
+
+= 2.3.1 =
+
+* use error-code 403 instead of 500 if pingbacks/webmentions are disabled for a post (thanks @snarfed)
+* added `webmention_comment_parent` filter
+
+= 2.3.0 =
+
+* nicer `title` and `content` discovery
+* added post-id to `webmention_links` filter
+* improved `publish_post_hook` function
+* disabled flood control
+* nicer response value
+* some more filters/actions
+* added a default request "action" to be more flexible and to handle more than mentions on posts and pages
+* a lot of small fixes
 
 = 2.2.0 =
 
