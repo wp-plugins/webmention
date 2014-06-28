@@ -5,7 +5,7 @@
  Description: Webmention support for WordPress posts
  Author: pfefferle
  Author URI: http://notizblog.org/
- Version: 2.3.0
+ Version: 2.3.1
 */
 
 // check if class already exists
@@ -32,7 +32,6 @@ add_action('init', array( 'WebMentionPlugin', 'init' ));
  * @author Matthias Pfefferle
  */
 class WebMentionPlugin {
-
   /**
    * Initialize the plugin, registering WordPress hooks.
    */
@@ -150,12 +149,13 @@ class WebMentionPlugin {
    *  the default is "webmention"
    * @uses apply_filters calls "webmention_comment_approve" to set the comment
    *  to auto-approve (for example)
+   * @uses apply_filters calls "webmention_comment_parent" to add a parent comment-id
    * @uses apply_filters calls "webmention_success_header" on the default response
    *  header
    * @uses do_action calls "webmention_post" on the comment_ID to be pingback
    *  and trackback compatible
    */
-  public static function default_request_handler( $source, $target, $contents ) {
+  public static function default_request_handler($source, $target, $contents) {
     // remove url-scheme
     $schemeless_target = preg_replace("/^https?:\/\//i", "", $target);
 
@@ -163,7 +163,7 @@ class WebMentionPlugin {
     $post_ID = url_to_postid("http://".$schemeless_target);
 
     // if there is no post
-    if ( !$post_ID ) {
+    if (!$post_ID) {
       // try https url
       $post_ID = url_to_postid("https://".$schemeless_target);
     }
@@ -173,13 +173,13 @@ class WebMentionPlugin {
     $post_ID = apply_filters("webmention_post_id", $post_ID, $target);
 
     // check if post id exists
-    if ( !$post_ID ) {
+    if (!$post_ID) {
       return;
     }
 
     // check if pings are allowed
     if ( !pings_open($post_ID) ) {
-      status_header(500);
+      status_header(403);
       echo "Pings are disabled for this post";
       exit;
     }
@@ -188,7 +188,7 @@ class WebMentionPlugin {
     $post = get_post($post_ID);
 
     // check if post exists
-    if ( !$post ) {
+    if (!$post) {
       return;
     }
 
@@ -202,13 +202,17 @@ class WebMentionPlugin {
     $comment_author_email = '';
     $comment_author_url = esc_url_raw($source);
     $comment_content = wp_slash($content);
+
     // change this if your theme can't handle the WebMentions comment type
     $webmention_comment_type = defined('WEBMENTION_COMMENT_TYPE') ? WEBMENTION_COMMENT_TYPE : 'webmention';
     $comment_type = apply_filters('webmention_comment_type', $webmention_comment_type);
-    $comment_parent = null;
+
     // change this if you want to auto approve your WebMentions
     $webmention_comment_approve = defined('WEBMENTION_COMMENT_APPROVE') ? WEBMENTION_COMMENT_APPROVE : 0;
     $comment_approved = apply_filters('webmention_comment_approve', $webmention_comment_approve);
+
+    // filter the parent id
+    $comment_parent = apply_filters('webmention_comment_parent', null, $target);
 
     $commentdata = compact('comment_post_ID', 'comment_author', 'comment_author_url', 'comment_author_email', 'comment_content', 'comment_type', 'comment_parent', 'comment_approved');
 
@@ -260,7 +264,7 @@ class WebMentionPlugin {
    *
    * @return string the filtered content
    */
-  public static function default_content_filter( $content, $contents, $target, $source ) {
+  public static function default_content_filter($content, $contents, $target, $source) {
     // get post format
     $post_ID = url_to_postid($target);
     $post_format = get_post_format($post_ID);
@@ -295,7 +299,7 @@ class WebMentionPlugin {
    *
    * @return string the filtered title
    */
-  public static function default_title_filter( $title, $contents, $target, $source ) {
+  public static function default_title_filter($title, $contents, $target, $source) {
     $meta_tags = @get_meta_tags($source);
 
     // use meta-author
@@ -320,7 +324,7 @@ class WebMentionPlugin {
    *
    * @param int $post_ID
    */
-  public static function publish_post_hook( $post_ID ) {
+  public static function publish_post_hook($post_ID) {
     // check if pingbacks are enabled
     if ( get_option('default_pingback_flag') )
       add_post_meta( $post_ID, '_mentionme', '1', true );
@@ -335,7 +339,7 @@ class WebMentionPlugin {
    *
    * @return array of results including HTTP headers
    */
-  public static function send_webmention( $source, $target ) {
+  public static function send_webmention($source, $target) {
     // stop selfpings
     if ($source == $target) {
       return false;
@@ -377,7 +381,7 @@ class WebMentionPlugin {
    * @param array $punk Pinged links
    * @param int $id The post_ID
    */
-  public static function send_webmentions( $post_ID ) {
+  public static function send_webmentions($post_ID) {
     // get source url
     $source = get_permalink($post_ID);
 
@@ -411,8 +415,8 @@ class WebMentionPlugin {
         }
       }
 
-      // if flood control is is active, rescedule the the cron
-      if (403 == wp_remote_retrieve_response_code( $response )) {
+      // rescedule if server responds with a http error 500
+      if (500 == wp_remote_retrieve_response_code( $response )) {
         add_post_meta( $post_ID, '_mentionme', '1', true );
         wp_schedule_single_event( time()+60, 'do_pings' );
       }
@@ -444,7 +448,7 @@ class WebMentionPlugin {
    *
    * @return bool|string False on failure, string containing URI on success.
    */
-  public static function discover_endpoint( $url ) {
+  public static function discover_endpoint($url) {
     /** @todo Should use Filter Extension or custom preg_match instead. */
     $parsed_url = parse_url($url);
 
@@ -543,8 +547,8 @@ class WebMentionPlugin {
    *
    * @return string the absolute url
    */
-  public static function make_url_absolute( $base, $rel ) {
-    if(strpos($rel,"//")===0) {
+  public static function make_url_absolute($base, $rel) {
+    if (strpos($rel,"//")===0) {
       return parse_url($base, PHP_URL_SCHEME).":".$rel;
     }
     // return if already absolute URL
