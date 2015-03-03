@@ -5,14 +5,14 @@
  Description: Webmention support for WordPress posts
  Author: pfefferle
  Author URI: http://notizblog.org/
- Version: 2.3.1
+ Version: 2.3.3
 */
 
 // check if class already exists
 if (!class_exists("WebMentionPlugin")) :
 
 /**
- * a wrapper for WebMentionPlugin::send_webmention
+ * A wrapper for WebMentionPlugin::send_webmention
  *
  * @param string $source source url
  * @param string $target target url
@@ -24,7 +24,7 @@ function send_webmention($source, $target) {
 }
 
 // initialize plugin
-add_action('init', array( 'WebMentionPlugin', 'init' ));
+add_action('init', array('WebMentionPlugin', 'init'));
 
 /**
  * WebMention Plugin Class
@@ -33,7 +33,7 @@ add_action('init', array( 'WebMentionPlugin', 'init' ));
  */
 class WebMentionPlugin {
   /**
-   * Initialize the plugin, registering WordPress hooks.
+   * Initialize the plugin, registering WordPress hooks
    */
   public static function init() {
     // a pseudo hook so you can run a do_action('send_webmention')
@@ -43,8 +43,13 @@ class WebMentionPlugin {
     add_filter('query_vars', array('WebMentionPlugin', 'query_var'));
     add_action('parse_query', array('WebMentionPlugin', 'parse_query'));
 
+    add_action('admin_comment_types_dropdown', array('WebMentionPlugin', 'comment_types_dropdown'));
+
+    // endpoint discovery
     add_action('wp_head', array('WebMentionPlugin', 'html_header'), 99);
     add_action('send_headers', array('WebMentionPlugin', 'http_header'));
+    add_filter('host_meta', array('WebMentionPlugin', 'jrd_links'));
+    add_filter('webfinger_data', array('WebMentionPlugin', 'jrd_links'));
 
     // run webmentions before the other pinging stuff
     add_action('do_pings', array('WebMentionPlugin', 'do_webmentions'), 5, 1);
@@ -70,7 +75,7 @@ class WebMentionPlugin {
   }
 
   /**
-   * Parse the WebMention request and render the document.
+   * Parse the WebMention request and render the document
    *
    * @param WP $wp WordPress request context
    *
@@ -82,21 +87,22 @@ class WebMentionPlugin {
       return;
     }
 
-    $content = file_get_contents('php://input');
-    parse_str($content);
+    $input = file_get_contents('php://input');
+    $params = array();
+    parse_str($input, $params);
 
     // plain text header
     header('Content-Type: text/plain; charset=' . get_option('blog_charset'));
 
     // check if source url is transmitted
-    if (!isset($source)) {
+    if (!isset($params['source'])) {
       status_header(400);
       echo "'source' is missing";
       exit;
     }
 
     // check if target url is transmitted
-    if (!isset($target)) {
+    if (!isset($params['target'])) {
       status_header(400);
       echo "'target' is missing";
       exit;
@@ -104,26 +110,26 @@ class WebMentionPlugin {
 
     // @todo check if target-host matches the blog-host
 
-    $response = wp_remote_get( $source, array('timeout' => 100) );
+    $response = wp_remote_get($params['source'], array('timeout' => 100));
 
     // check if source is accessible
-    if ( is_wp_error( $response ) ) {
+    if (is_wp_error($response)) {
       status_header(400);
       echo "Source URL not found.";
       exit;
     }
 
-    $contents = wp_remote_retrieve_body( $response );
+    $contents = wp_remote_retrieve_body($response);
 
     // check if source really links to target
-    if (!strpos($contents, str_replace(array('http://www.','http://','https://www.','https://'), '', untrailingslashit(preg_replace('/#.*/', '', $target))))) {
+    if (!strpos($contents, str_replace(array('http://www.','http://','https://www.','https://'), '', untrailingslashit(preg_replace('/#.*/', '', $params['target']))))) {
       status_header(400);
       echo "Can't find target link.";
       exit;
     }
 
     // be sure to add an "exit;" to the end of your request handler
-    do_action("webmention_request", $source, $target, $contents);
+    do_action("webmention_request", $params['source'], $params['target'], $contents);
 
     // if no "action" is responsible, return a 404
     status_header(404);
@@ -133,9 +139,9 @@ class WebMentionPlugin {
   }
 
   /**
-   * default request handler
+   * Default request handler
    *
-   * tries to map a target url to a specific post and generates a simple
+   * Tries to map a target url to a specific post and generates a simple
    * "default" comment.
    *
    * @param string $source the source url
@@ -178,7 +184,7 @@ class WebMentionPlugin {
     }
 
     // check if pings are allowed
-    if ( !pings_open($post_ID) ) {
+    if (!pings_open($post_ID)) {
       status_header(403);
       echo "Pings are disabled for this post";
       exit;
@@ -193,8 +199,8 @@ class WebMentionPlugin {
     }
 
     // filter title or content of the comment
-    $title = apply_filters( "webmention_title", "", $contents, $target, $source );
-    $content = apply_filters( "webmention_content", "", $contents, $target, $source );
+    $title = apply_filters("webmention_title", "", $contents, $target, $source);
+    $content = apply_filters("webmention_content", "", $contents, $target, $source);
 
     // generate comment
     $comment_post_ID = (int) $post->ID;
@@ -218,7 +224,7 @@ class WebMentionPlugin {
 
     // check dupes
     global $wpdb;
-    $comments = $wpdb->get_results( $wpdb->prepare("SELECT * FROM $wpdb->comments WHERE comment_post_ID = %d AND comment_author_url = %s", $comment_post_ID,  htmlentities($comment_author_url)) );
+    $comments = $wpdb->get_results($wpdb->prepare("SELECT * FROM $wpdb->comments WHERE comment_post_ID = %d AND comment_author_url = %s", $comment_post_ID,  htmlentities($comment_author_url)));
 
     // check result
     if (!empty($comments)) {
@@ -250,12 +256,12 @@ class WebMentionPlugin {
     // render a simple and customizable text output
     echo apply_filters('webmention_success_message', get_comment_link($comment_ID));
 
-    do_action( 'webmention_post', $comment_ID );
+    do_action('webmention_post', $comment_ID);
     exit;
   }
 
   /**
-   * try to make a nice comment
+   * Try to make a nice comment
    *
    * @param string $context the comment-content
    * @param string $contents the HTML of the source
@@ -290,7 +296,21 @@ class WebMentionPlugin {
   }
 
   /**
-   * try to make a nice title (username)
+   * Extend the "filter by comment type" of in the comments section
+   * of the admin interface with "webmention"
+   *
+   * @param array $types the different comment types
+   *
+   * @return array the filtert comment types
+   */
+  public static function comment_types_dropdown($types) {
+    $types['webmention'] = __('Webmentions', 'webmention');
+
+    return $types;
+  }
+
+  /**
+   * Try to make a nice title (username)
    *
    * @param string $title the comment-title (username)
    * @param string $contents the HTML of the source
@@ -326,8 +346,8 @@ class WebMentionPlugin {
    */
   public static function publish_post_hook($post_ID) {
     // check if pingbacks are enabled
-    if ( get_option('default_pingback_flag') )
-      add_post_meta( $post_ID, '_mentionme', '1', true );
+    if (get_option('default_pingback_flag'))
+      add_post_meta($post_ID, '_mentionme', '1', true);
   }
 
 
@@ -336,17 +356,18 @@ class WebMentionPlugin {
    *
    * @param string $source source url
    * @param string $target target url
+   * @param int $post_ID the post_ID (optional)
    *
    * @return array of results including HTTP headers
    */
-  public static function send_webmention($source, $target) {
+  public static function send_webmention($source, $target, $post_ID = null) {
     // stop selfpings
     if ($source == $target) {
       return false;
     }
 
     // discover the webmention endpoint
-    $webmention_server_url = self::discover_endpoint( $target );
+    $webmention_server_url = self::discover_endpoint($target);
 
     // if I can't find an endpoint, perhaps you can!
     $webmention_server_url = apply_filters('webmention_server_url', $webmention_server_url, $target);
@@ -354,13 +375,13 @@ class WebMentionPlugin {
     $args = array(
               'body' => 'source='.urlencode($source).'&target='.urlencode($target),
               'timeout' => 100
-            );
+           );
 
     if ($webmention_server_url) {
-      $response = wp_remote_post( $webmention_server_url, $args );
+      $response = wp_remote_post($webmention_server_url, $args);
 
       // use the response to do something usefull
-      do_action('webmention_post_send', $response, $source, $target);
+      do_action('webmention_post_send', $response, $source, $target, $post_ID);
 
       return $response;
     }
@@ -377,9 +398,7 @@ class WebMentionPlugin {
    *   add_action('publish_post', array('WebMentionPlugin', 'send_webmentions'));
    * </code>
    *
-   * @param array $links Links to ping
-   * @param array $punk Pinged links
-   * @param int $id The post_ID
+   * @param int $post_ID the post_ID
    */
   public static function send_webmentions($post_ID) {
     // get source url
@@ -402,24 +421,54 @@ class WebMentionPlugin {
 
     foreach ($targets as $target) {
       // send webmention
-      $response = self::send_webmention($source, $target);
+      $response = self::send_webmention($source, $target, $post_ID);
 
       // check response
-      if ( !is_wp_error( $response ) ) {
+      if (!is_wp_error($response) &&
+          wp_remote_retrieve_response_code($response) < 400) {
         $pung = get_pung($post_ID);
 
         // if not already added to punged urls
         if (!in_array($target, $pung)) {
           // tell the pingback function not to ping these links again
-          add_ping( $post_ID, $target );
+          add_ping($post_ID, $target);
         }
       }
 
-      // rescedule if server responds with a http error 500
-      if (500 == wp_remote_retrieve_response_code( $response )) {
-        add_post_meta( $post_ID, '_mentionme', '1', true );
-        wp_schedule_single_event( time()+60, 'do_pings' );
+      // rescedule if server responds with a http error 5xx
+      if (wp_remote_retrieve_response_code($response) >= 500) {
+        self::reschedule($post_ID);
       }
+    }
+  }
+
+  /**
+   * Rescedule WebMentions on HTTP code 500
+   *
+   * @param int $post_ID the post id
+   */
+  public static function reschedule($post_ID) {
+    $tries = get_post_meta($post_ID, '_mentionme_tries', true);
+
+    // check "tries" and set to 0 if null
+    if (!$tries) {
+      $tries = 0;
+    }
+
+    // raise "tries" counter
+    $tries = $tries+1;
+
+    // rescedule only three times
+    if ($tries <= 3) {
+      // save new tries value
+      update_post_meta($post_ID, '_mentionme_tries', $tries);
+
+      // and rescedule
+      add_post_meta($post_ID, '_mentionme', '1', true);
+
+      wp_schedule_single_event(time()+($tries*900), 'do_pings');
+    } else {
+      delete_post_meta($post_ID, '_mentionme_tries');
     }
   }
 
@@ -428,46 +477,50 @@ class WebMentionPlugin {
    */
   public static function do_webmentions() {
     global $wpdb;
+
     // get all posts that should be "mentioned"
-    while ($mention = $wpdb->get_row("SELECT ID, meta_id FROM {$wpdb->posts}, {$wpdb->postmeta} WHERE {$wpdb->posts}.ID = {$wpdb->postmeta}.post_id AND {$wpdb->postmeta}.meta_key = '_mentionme' LIMIT 1")) {
-      delete_metadata_by_mid( 'post', $mention->meta_id );
+    $mentions = $wpdb->get_results("SELECT ID, meta_id FROM {$wpdb->posts}, {$wpdb->postmeta} WHERE {$wpdb->posts}.ID = {$wpdb->postmeta}.post_id AND {$wpdb->postmeta}.meta_key = '_mentionme'");
+
+    // iterate mentions
+    foreach ($mentions as $mention) {
+      delete_metadata_by_mid('post', $mention->meta_id);
+
       // send them webmentions
-      self::send_webmentions( $mention->ID );
+      self::send_webmentions($mention->ID);
     }
   }
 
   /**
-   * Finds a WebMention server URI based on the given URL.
+   * Finds a WebMention server URI based on the given URL
    *
    * Checks the HTML for the rel="http://webmention.org/" link and http://webmention.org/ headers. It does
    * a check for the http://webmention.org/ headers first and returns that, if available. The
    * check for the rel="http://webmention.org/" has more overhead than just the header.
    *
-   * @param string $url URL to ping.
-   * @param int $deprecated Not Used.
+   * @param string $url URL to ping
    *
-   * @return bool|string False on failure, string containing URI on success.
+   * @return bool|string False on failure, string containing URI on success
    */
   public static function discover_endpoint($url) {
     /** @todo Should use Filter Extension or custom preg_match instead. */
     $parsed_url = parse_url($url);
 
-    if ( ! isset( $parsed_url['host'] ) ) // Not an URL. This should never happen.
+    if (!isset($parsed_url['host'])) // Not an URL. This should never happen.
       return false;
 
-    //Do not search for a WebMention server on our own uploads
+    // do not search for a WebMention server on our own uploads
     $uploads_dir = wp_upload_dir();
-    if ( 0 === strpos($url, $uploads_dir['baseurl']) )
+    if (0 === strpos($url, $uploads_dir['baseurl']))
       return false;
 
-    $response = wp_remote_head( $url, array( 'timeout' => 100, 'httpversion' => '1.0' ) );
+    $response = wp_remote_head($url, array('timeout' => 100, 'httpversion' => '1.0'));
 
-    if ( is_wp_error( $response ) )
+    if (is_wp_error($response))
       return false;
 
     // check link header
-    if ( $links = wp_remote_retrieve_header( $response, 'link' ) ) {
-      if ( is_array($links) ) {
+    if ($links = wp_remote_retrieve_header($response, 'link')) {
+      if (is_array($links)) {
         foreach ($links as $link) {
           if (preg_match("/<(.[^>]+)>;\s+rel\s?=\s?[\"\']?(http:\/\/)?webmention(.org)?\/?[\"\']?/i", $link, $result))
             return self::make_url_absolute($url, $result[1]);
@@ -478,20 +531,20 @@ class WebMentionPlugin {
       }
     }
 
-    // Not an (x)html, sgml, or xml page, no use going further.
-    if ( preg_match('#(image|audio|video|model)/#is', wp_remote_retrieve_header( $response, 'content-type' )) )
+    // not an (x)html, sgml, or xml page, no use going further
+    if (preg_match('#(image|audio|video|model)/#is', wp_remote_retrieve_header($response, 'content-type')))
       return false;
 
-    // Now do a GET since we're going to look in the html headers (and we're sure its not a binary file)
-    $response = wp_remote_get( $url, array( 'timeout' => 100, 'httpversion' => '1.0' ) );
+    // now do a GET since we're going to look in the html headers (and we're sure its not a binary file)
+    $response = wp_remote_get($url, array('timeout' => 100, 'httpversion' => '1.0'));
 
-    if ( is_wp_error( $response ) )
+    if (is_wp_error($response))
       return false;
 
-    $contents = wp_remote_retrieve_body( $response );
+    $contents = wp_remote_retrieve_body($response);
 
     // boost performance and use alreade the header
-    $header = substr( $contents, 0, stripos( $contents, '</head>' ) );
+    $header = substr($contents, 0, stripos($contents, '</head>'));
 
     // unicode to HTML entities
     $contents = mb_convert_encoding($contents, 'HTML-ENTITIES', mb_detect_encoding($contents));
@@ -522,25 +575,42 @@ class WebMentionPlugin {
    * The WebMention autodicovery meta-tags
    */
   public static function html_header() {
+    $endpoint = apply_filters("webmention_endpoint", site_url("?webmention=endpoint"));
+
     // backwards compatibility with v0.1
-    echo '<link rel="http://webmention.org/" href="'.site_url("?webmention=endpoint").'" />'."\n";
-    echo '<link rel="webmention" href="'.site_url("?webmention=endpoint").'" />'."\n";
+    echo '<link rel="http://webmention.org/" href="'.$endpoint.'" />'."\n";
+    echo '<link rel="webmention" href="'.$endpoint.'" />'."\n";
   }
 
   /**
    * The WebMention autodicovery http-header
    */
   public static function http_header() {
+    $endpoint = apply_filters("webmention_endpoint", site_url("?webmention=endpoint"));
+
     // backwards compatibility with v0.1
-    header('Link: <'.site_url("?webmention=endpoint").'>; rel="http://webmention.org/"', false);
-    header('Link: <'.site_url("?webmention=endpoint").'>; rel="webmention"', false);
+    header('Link: <'.$endpoint.'>; rel="http://webmention.org/"', false);
+    header('Link: <'.$endpoint.'>; rel="webmention"', false);
   }
 
   /**
-   * converts relative to absolute urls
+   * Generates webfinger/host-meta links
+   */
+  public static function jrd_links($array) {
+    $endpoint = apply_filters("webmention_endpoint", site_url("?webmention=endpoint"));
+
+    $array["links"][] = array("rel" => "webmention", "href" => $endpoint);
+    $array["links"][] = array("rel" => "http://webmention.org/", "href" => $endpoint);
+
+    return $array;
+  }
+
+  /**
+   * Converts relative to absolute urls
    *
-   * based on the code of 99webtools.com
-   * @link https://99webtools.com/relative-path-into-absolute-url.php
+   * Based on the code of 99webtools.com
+   *
+   * @link http://99webtools.com/relative-path-into-absolute-url.php
    *
    * @param string $base the base url
    * @param string $rel the relative url
@@ -559,23 +629,50 @@ class WebMentionPlugin {
     // $scheme, $host, $path
     extract(parse_url($base));
     // remove  non-directory element from path
-    $path = preg_replace('#/[^/]*$#',  '', $path);
+    $path = preg_replace('#/[^/]*$#', '', $path);
     // destroy path if relative url points to root
-    if ($rel[0] ==  '/') $path = '';
+    if ($rel[0] == '/') $path = '';
     // dirty absolute  URL
-    $abs =  "$host";
+    $abs = "$host";
     // check port
     if (isset($port) && !empty($port))
       $abs .= ":$port";
     // add path + rel
-    $abs .=  "$path/$rel";
+    $abs .= "$path/$rel";
     // replace '//' or '/./' or '/foo/../' with '/'
-    $re =  array('#(/\.?/)#', '#/(?!\.\.)[^/]+/\.\./#');
+    $re = array('#(/\.?/)#', '#/(?!\.\.)[^/]+/\.\./#');
     for ($n=1; $n>0; $abs=preg_replace($re, '/', $abs, -1, $n)) {}
     // absolute URL is ready!
-    return  $scheme.'://'.$abs;
+    return $scheme.'://'.$abs;
   }
 }
 
 // end check if class already exists
+endif;
+
+if (!function_exists('get_webmentions_number')) :
+/**
+ * Return the Number of Webmentions
+ *
+ * @param int $post_id The post ID (optional)
+ *
+ * @return int the number of WebMentions for one Post
+ */
+function get_webmentions_number($post_id = 0) {
+  $post = get_post($post_id);
+
+  // change this if your theme can't handle the WebMentions comment type
+  $webmention_comment_type = defined('WEBMENTION_COMMENT_TYPE') ? WEBMENTION_COMMENT_TYPE : 'webmention';
+  $comment_type = apply_filters('webmention_comment_type', $webmention_comment_type);
+
+  $args = array(
+    'post_id' => $post->ID,
+    'type'    => $comment_type,
+    'count'   => true,
+    'status'  => 'approve'
+  );
+
+  $comments_query = new WP_Comment_Query;
+  return $comments_query->query($args);
+}
 endif;
